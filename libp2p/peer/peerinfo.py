@@ -2,11 +2,13 @@ from typing import List
 
 import multiaddr
 
-from .id import ID
+from .id import ID, id_b58_decode
+from abc import ABC
+
 from .peerdata import PeerData
 
 
-class PeerInfo:
+class PeerInfo(ABC):
 
     peer_id: ID
     addrs: List[multiaddr.Multiaddr]
@@ -14,6 +16,10 @@ class PeerInfo:
     def __init__(self, peer_id: ID, peer_data: PeerData = None) -> None:
         self.peer_id = peer_id
         self.addrs = peer_data.get_addrs() if peer_data else None
+
+    @property
+    def peer_id_raw(self) -> bytes:
+        return self.peer_id.get_raw_id()
 
 
 def info_from_p2p_addr(addr: multiaddr.Multiaddr) -> PeerInfo:

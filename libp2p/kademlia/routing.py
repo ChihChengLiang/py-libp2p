@@ -7,6 +7,15 @@ import time
 from .utils import OrderedSet, bytes_to_bit_string, shared_prefix
 
 
+from typing import Tuple, Any, TYPE_CHECKING, Sequence, List, Union
+
+if TYPE_CHECKING:
+    from .kad_peerinfo import KadPeerInfo
+    from libp2p.peer.id import ID
+    from multiaddr import Multiaddr
+    from .protocol import KademliaProtocol
+
+
 class KBucket:
     """
     each node keeps a list of (ip, udp_port, node_id)
@@ -16,45 +25,51 @@ class KBucket:
     policy except that live nodes are never removed
     """
 
-    def __init__(self, rangeLower, rangeUpper, ksize):
+    range: Tuple[int, int]
+    nodes: "OrderedDict[bytes, KadPeerInfo]"
+    replacement_nodes: "OrderedSet[KadPeerInfo]"
+    ksize: int
+    last_updated: float
+
+    def __init__(self, rangeLower: int, rangeUpper: int, ksize: int) -> None:
         self.range = (rangeLower, rangeUpper)
         self.nodes = OrderedDict()
         self.replacement_nodes = OrderedSet()
         self.touch_last_updated()
         self.ksize = ksize
 
-    def touch_last_updated(self):
+    def touch_last_updated(self) -> None:
         self.last_updated = time.monotonic()
 
-    def get_nodes(self):
+    def get_nodes(self) -> List["KadPeerInfo"]:
         return list(self.nodes.values())
 
-    def split(self):
-        midpoint = (self.range[0] + self.range[1]) / 2
+    def split(self) -> Tuple["KBucket", "KBucket"]:
+        midpoint = (self.range[0] + self.range[1]) // 2
         one = KBucket(self.range[0], midpoint, self.ksize)
         two = KBucket(midpoint + 1, self.range[1], self.ksize)
         for node in self.nodes.values():
             bucket = one if node.xor_id <= midpoint else two
-            bucket.nodes[node.peer_id_bytes] = node
+            bucket.nodes[node.peer_id_raw] = node
         return (one, two)
 
-    def remove_node(self, node):
-        if node.peer_id_bytes not in self.nodes:
+    def remove_node(self, node: "KadPeerInfo") -> None:
+        if node.peer_id_raw not in self.nodes:
             return
 
         # delete node, and see if we can add a replacement
-        del self.nodes[node.peer_id_bytes]
+        del self.nodes[node.peer_id_raw]
         if self.replacement_nodes:
             newnode = self.replacement_nodes.pop()
-            self.nodes[newnode.peer_id_bytes] = newnode
+            self.nodes[newnode.peer_id_raw] = newnode
 
-    def has_in_range(self, node):
+    def has_in_range(self, node: "KadPeerInfo") -> bool:
         return self.range[0] <= node.xor_id <= self.range[1]
 
-    def is_new_node(self, node):
-        return node.peer_id_bytes not in self.nodes
+    def is_new_node(self, node: "KadPeerInfo") -> bool:
+        return node.peer_id_raw not in self.nodes
 
-    def add_node(self, node):
+    def add_node(self, node: "KadPeerInfo") -> bool:
         """
         Add a C{Node} to the C{KBucket}.  Return True if successful,
         False if the bucket is full.
@@ -62,33 +77,38 @@ class KBucket:
         If the bucket is full, keep track of node in a replacement list,
         per section 4.1 of the paper.
         """
-        if node.peer_id_bytes in self.nodes:
-            del self.nodes[node.peer_id_bytes]
-            self.nodes[node.peer_id_bytes] = node
+        if node.peer_id_raw in self.nodes:
+            del self.nodes[node.peer_id_raw]
+            self.nodes[node.peer_id_raw] = node
         elif len(self) < self.ksize:
-            self.nodes[node.peer_id_bytes] = node
+            self.nodes[node.peer_id_raw] = node
         else:
             self.replacement_nodes.push(node)
             return False
         return True
 
-    def depth(self):
+    def depth(self) -> int:
         vals = self.nodes.values()
-        sprefix = shared_prefix([bytes_to_bit_string(n.peer_id_bytes) for n in vals])
+        sprefix = shared_prefix([bytes_to_bit_string(n.peer_id_raw) for n in vals])
         return len(sprefix)
 
-    def head(self):
+    def head(self) -> "KadPeerInfo":
         return list(self.nodes.values())[0]
 
-    def __getitem__(self, node_id):
+    def __getitem__(self, node_id: bytes) -> "KadPeerInfo":
         return self.nodes.get(node_id, None)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.nodes)
 
 
 class TableTraverser:
-    def __init__(self, table, startNode):
+    current_nodes: List["KadPeerInfo"]
+    left_buckets: List["KBucket"]
+    right_buckets: List["KBucket"]
+    left: bool
+
+    def __init__(self, table: "RoutingTable", startNode: "KadPeerInfo") -> None:
         index = table.get_bucket_for(startNode)
         table.buckets[index].touch_last_updated()
         self.current_nodes = table.buckets[index].get_nodes()
@@ -96,10 +116,10 @@ class TableTraverser:
         self.right_buckets = table.buckets[(index + 1) :]
         self.left = True
 
-    def __iter__(self):
+    def __iter__(self) -> "TableTraverser":
         return self
 
-    def __next__(self):
+    def __next__(self) -> "KadPeerInfo":
         """
         Pop an item from the left subtree, then right, then left, etc.
         """
@@ -120,7 +140,14 @@ class TableTraverser:
 
 
 class RoutingTable:
-    def __init__(self, protocol, ksize, node):
+    node: "KadPeerInfo"
+    protocol: "KademliaProtocol"
+    ksize: int
+    buckets: List["KBucket"]
+
+    def __init__(
+        self, protocol: "KademliaProtocol", ksize: int, node: "KadPeerInfo"
+    ) -> None:
         """
         @param node: The node that represents this server.  It won't
         be added to the routing table, but will be needed later to
@@ -131,15 +158,15 @@ class RoutingTable:
         self.ksize = ksize
         self.flush()
 
-    def flush(self):
+    def flush(self) -> None:
         self.buckets = [KBucket(0, 2 ** 160, self.ksize)]
 
-    def split_bucket(self, index):
+    def split_bucket(self, index: int) -> None:
         one, two = self.buckets[index].split()
         self.buckets[index] = one
         self.buckets.insert(index + 1, two)
 
-    def lonely_buckets(self):
+    def lonely_buckets(self) -> List["KBucket"]:
         """
         Get all of the buckets that haven't been updated in over
         an hour.
@@ -147,15 +174,15 @@ class RoutingTable:
         hrago = time.monotonic() - 3600
         return [b for b in self.buckets if b.last_updated < hrago]
 
-    def remove_contact(self, node):
+    def remove_contact(self, node: "KadPeerInfo") -> None:
         index = self.get_bucket_for(node)
         self.buckets[index].remove_node(node)
 
-    def is_new_node(self, node):
+    def is_new_node(self, node: "KadPeerInfo") -> bool:
         index = self.get_bucket_for(node)
         return self.buckets[index].is_new_node(node)
 
-    def add_contact(self, node):
+    def add_contact(self, node: "KadPeerInfo") -> None:
         index = self.get_bucket_for(node)
         bucket = self.buckets[index]
 
@@ -171,7 +198,7 @@ class RoutingTable:
         else:
             asyncio.ensure_future(self.protocol.call_ping(bucket.head()))
 
-    def get_bucket_for(self, node):
+    def get_bucket_for(self, node: "KadPeerInfo") -> int:
         """
         Get the index of the bucket that the given node would fall into.
         """
@@ -181,9 +208,11 @@ class RoutingTable:
         # we should never be here, but make linter happy
         return None
 
-    def find_neighbors(self, node, k=None, exclude=None):
+    def find_neighbors(
+        self, node: "KadPeerInfo", k: int = None, exclude: "Multiaddr" = None
+    ) -> List["KadPeerInfo"]:
         k = k or self.ksize
-        nodes = []
+        nodes: List["KadPeerInfo"] = []
         for neighbor in TableTraverser(self, node):
             notexcluded = exclude is None or not neighbor.same_home_as(exclude)
             if neighbor.peer_id_bytes != node.peer_id_bytes and notexcluded:
