@@ -1,6 +1,7 @@
 import heapq
 from operator import itemgetter
 import random
+from typing import TYPE_CHECKING, Any, Iterator, List, Sequence, Set, Tuple, Union
 
 from multiaddr import Multiaddr
 
@@ -9,7 +10,6 @@ from libp2p.peer.peerdata import PeerData
 from libp2p.peer.peerinfo import PeerInfo
 
 from .utils import digest
-from typing import List, TYPE_CHECKING, Iterator, Any, Tuple, Set, Sequence, Union
 
 if TYPE_CHECKING:
     from libp2p.host.host_interface import IHost

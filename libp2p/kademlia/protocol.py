@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from typing import TYPE_CHECKING, Any, Dict, List, NewType, Tuple, TypeVar
 
 from rpcudp.protocol import RPCProtocol
 
@@ -9,7 +10,6 @@ from .routing import RoutingTable
 
 log = logging.getLogger(__name__)
 
-from typing import Dict, TYPE_CHECKING, List, TypeVar, Tuple, NewType, Any
 
 if TYPE_CHECKING:
     from .storage import IStorage
@@ -41,9 +41,7 @@ class KademliaProtocol(RPCProtocol):
     storage: "IStorage"
     source_node: "KadPeerInfo"
 
-    def __init__(
-        self, source_node: "KadPeerInfo", storage: "IStorage", ksize: int
-    ) -> None:
+    def __init__(self, source_node: "KadPeerInfo", storage: "IStorage", ksize: int) -> None:
         RPCProtocol.__init__(self)
         self.router = RoutingTable(self, ksize, source_node)
         self.storage = storage
@@ -69,9 +67,7 @@ class KademliaProtocol(RPCProtocol):
         self.welcome_if_new(source)
         return self.source_node.peer_id_bytes
 
-    def rpc_store(
-        self, sender: Address, nodeid: TNodeID, key: TKey, value: TValue
-    ) -> bool:
+    def rpc_store(self, sender: Address, nodeid: TNodeID, key: TKey, value: TValue) -> bool:
         source = create_kad_peerinfo(nodeid, sender[0], sender[1])
 
         self.welcome_if_new(source)
@@ -79,9 +75,7 @@ class KademliaProtocol(RPCProtocol):
         self.storage[key] = value
         return True
 
-    def rpc_find_node(
-        self, sender: Address, nodeid: TNodeID, key: TKey
-    ) -> List[Tuple[Any, ...]]:
+    def rpc_find_node(self, sender: Address, nodeid: TNodeID, key: TKey) -> List[Tuple[Any, ...]]:
         log.info("finding neighbors of %i in local table", int(nodeid.hex(), 16))
         source = create_kad_peerinfo(nodeid, sender[0], sender[1])
 
@@ -90,9 +84,7 @@ class KademliaProtocol(RPCProtocol):
         neighbors = self.router.find_neighbors(node, exclude=source)
         return list(map(tuple, neighbors))
 
-    def rpc_find_value(
-        self, sender: Address, nodeid: TNodeID, key: TKey
-    ) -> Dict[str, TValue]:
+    def rpc_find_value(self, sender: Address, nodeid: TNodeID, key: TKey) -> Dict[str, TValue]:
         source = create_kad_peerinfo(nodeid, sender[0], sender[1])
 
         self.welcome_if_new(source)
@@ -140,18 +132,14 @@ class KademliaProtocol(RPCProtocol):
         self, node_to_ask: "KadPeerInfo", node_to_find: "KadPeerInfo"
     ) -> TResult:
         address = (node_to_ask.ip, node_to_ask.port)
-        result = await self.rpc_find_node(
-            address, self.source_node.peer_id, node_to_find.peer_id
-        )
+        result = await self.rpc_find_node(address, self.source_node.peer_id, node_to_find.peer_id)
         return self.handle_call_response(result, node_to_ask)
 
     async def call_find_value(
         self, node_to_ask: "KadPeerInfo", node_to_find: "KadPeerInfo"
     ) -> TResult:
         address = (node_to_ask.ip, node_to_ask.port)
-        result = await self.rpc_find_value(
-            address, self.source_node.peer_id, node_to_find.peer_id
-        )
+        result = await self.rpc_find_value(address, self.source_node.peer_id, node_to_find.peer_id)
         return self.handle_call_response(result, node_to_ask)
 
     async def call_ping(self, node_to_ask: "KadPeerInfo") -> TResult:
@@ -159,9 +147,7 @@ class KademliaProtocol(RPCProtocol):
         result = await self.ping(address, self.source_node.peer_id_bytes)
         return self.handle_call_response(result, node_to_ask)
 
-    async def call_store(
-        self, node_to_ask: "KadPeerInfo", key: TKey, value: TValue
-    ) -> TResult:
+    async def call_store(self, node_to_ask: "KadPeerInfo", key: TKey, value: TValue) -> TResult:
         address = (node_to_ask.ip, node_to_ask.port)
         result = await self.store(address, self.source_node.peer_id_bytes, key, value)
         return self.handle_call_response(result, node_to_ask)
@@ -170,14 +156,10 @@ class KademliaProtocol(RPCProtocol):
         self, node_to_ask: "KadPeerInfo", key: TKey, provider_id: TNodeID
     ) -> TResult:
         address = Address((node_to_ask.ip, node_to_ask.port))
-        result = self.rpc_add_provider(
-            address, self.source_node.peer_id, key, provider_id
-        )
+        result = self.rpc_add_provider(address, self.source_node.peer_id, key, provider_id)
         return self.handle_call_response(result, node_to_ask)
 
-    async def call_get_providers(
-        self, node_to_ask: "KadPeerInfo", key: TKey
-    ) -> TResult:
+    async def call_get_providers(self, node_to_ask: "KadPeerInfo", key: TKey) -> TResult:
         address = (node_to_ask.ip, node_to_ask.port)
         result = await self.get_providers(address, key)
         return self.handle_call_response(result, node_to_ask)

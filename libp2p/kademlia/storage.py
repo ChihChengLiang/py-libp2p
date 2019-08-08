@@ -3,9 +3,7 @@ from collections import OrderedDict
 from itertools import takewhile
 import operator
 import time
-from collections import OrderedDict
-from abc import abstractmethod, ABC
-from typing import TYPE_CHECKING, TypeVar, Iterator, Tuple
+from typing import TYPE_CHECKING, Iterator, Tuple, TypeVar
 
 if TYPE_CHECKING:
     from typing import Any

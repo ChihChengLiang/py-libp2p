@@ -3,11 +3,9 @@ from collections import OrderedDict
 import heapq
 import operator
 import time
+from typing import TYPE_CHECKING, Any, List, Sequence, Tuple, Union
 
 from .utils import OrderedSet, bytes_to_bit_string, shared_prefix
-
-
-from typing import Tuple, Any, TYPE_CHECKING, Sequence, List, Union
 
 if TYPE_CHECKING:
     from .kad_peerinfo import KadPeerInfo
@@ -145,9 +143,7 @@ class RoutingTable:
     ksize: int
     buckets: List["KBucket"]
 
-    def __init__(
-        self, protocol: "KademliaProtocol", ksize: int, node: "KadPeerInfo"
-    ) -> None:
+    def __init__(self, protocol: "KademliaProtocol", ksize: int, node: "KadPeerInfo") -> None:
         """
         @param node: The node that represents this server.  It won't
         be added to the routing table, but will be needed later to

@@ -1,11 +1,11 @@
 from collections import Counter
 import logging
+from typing import TYPE_CHECKING, List, Sequence, TypeVar
 
 from .kad_peerinfo import KadPeerHeap, create_kad_peerinfo
 from .utils import gather_dict
 
 log = logging.getLogger(__name__)
-from typing import TYPE_CHECKING, Sequence, List, TypeVar
 
 if TYPE_CHECKING:
     from .protocol import KademliaProtocol
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 TRPCMethod = TypeVar("TRPCMethod")
 TNodesFound = TypeVar("TNodesFound")
 TPeerID = TypeVar("TPeerID")
-TResponses = 'RPCFindResponse'
+TResponses = "RPCFindResponse"
 
 
 class SpiderCrawl:
