@@ -46,6 +46,9 @@ class ID:
     def __hash__(self) -> int:
         return hash(self._bytes)
 
+    def hex(self) -> str:
+        return self._bytes.hex()
+
     @classmethod
     def from_base58(cls, b58_encoded_peer_id_str: str) -> "ID":
         peer_id_bytes = base58.b58decode(b58_encoded_peer_id_str)

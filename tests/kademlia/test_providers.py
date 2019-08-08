@@ -15,9 +15,9 @@ async def test_example():
     key = "hello"
     value = "world"
     await node_b.set(key, value)
-    await node_b.provide("hello")
+    await node_b.provide(b"hello")
 
-    providers = await node_b.get_providers("hello")
+    providers = await node_b.get_providers(b"hello")
 
     # bmuller's handle_call_response wraps
     # every rpc call result in a list of tuples

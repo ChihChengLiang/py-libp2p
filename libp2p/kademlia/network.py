@@ -122,7 +122,7 @@ class KademliaServer:
         return await spider.find()
 
     async def bootstrap_node(self, addr):
-        result = await self.protocol.ping(addr, self.node.peer_id_raw)
+        result = await self.protocol.ping(addr, self.node.peer_id_bytes)
         return create_kad_peerinfo(result[1], addr[0], addr[1]) if result[0] else None
 
     async def get(self, key):
@@ -146,7 +146,7 @@ class KademliaServer:
         spider = ValueSpiderCrawl(self.protocol, node, nearest, self.ksize, self.alpha)
         return await spider.find()
 
-    async def set(self, key, value):
+    async def set(self, key: str, value: str):
         """
         Set the given string key to the given value in the network.
         """
@@ -173,7 +173,7 @@ class KademliaServer:
         neighbors = self.protocol.router.find_neighbors(self.node)
         return [await self.protocol.call_get_providers(n, key) for n in neighbors]
 
-    async def set_digest(self, dkey, value):
+    async def set_digest(self, dkey: bytes, value):
         """
         Set the given SHA1 digest key (bytes) to the given value in the
         network.

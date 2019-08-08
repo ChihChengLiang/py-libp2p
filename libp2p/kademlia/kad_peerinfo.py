@@ -26,7 +26,7 @@ class KadPeerInfo(PeerInfo):
     def __init__(self, peer_id: ID, peer_data: PeerData = None) -> None:
         super().__init__(peer_id, peer_data)
 
-        self.xor_id = peer_id.get_xor_id()
+        self.xor_id = peer_id.xor_id
 
         self.ip = self.addrs[0].value_for_protocol(P_IP) if peer_data else None
         self.port = int(self.addrs[0].value_for_protocol(P_UDP)) if peer_data else None
@@ -44,7 +44,7 @@ class KadPeerInfo(PeerInfo):
         """
         Enables use of Node as a tuple - i.e., tuple(node) works.
         """
-        return iter([self.peer_id_raw, self.ip, self.port])
+        return iter([self.peer_id_bytes, self.ip, self.port])
 
     def __repr__(self) -> str:
         return repr([self.xor_id, self.ip, self.port, self.peer_id])
@@ -97,7 +97,7 @@ class KadPeerHeap:
 
     def get_node(self, node_id: bytes) -> "KadPeerInfo":
         for _, node in self.heap:
-            if node.peer_id_raw == node_id:
+            if node.peer_id_bytes == node_id:
                 return node
         return None
 
@@ -105,10 +105,10 @@ class KadPeerHeap:
         return len(self.get_uncontacted()) == 0
 
     def get_ids(self) -> List[bytes]:
-        return [n.peer_id_raw for n in self]
+        return [n.peer_id_bytes for n in self]
 
     def mark_contacted(self, node: "KadPeerInfo") -> None:
-        self.contacted.add(node.peer_id_raw)
+        self.contacted.add(node.peer_id_bytes)
 
     def popleft(self) -> "KadPeerInfo":
         return heapq.heappop(self.heap)[1] if self else None
@@ -141,21 +141,29 @@ class KadPeerHeap:
 
     def __contains__(self, node: "KadPeerInfo") -> bool:
         for _, other in self.heap:
-            if node.peer_id_raw == other.peer_id_raw:
+            if node.peer_id_bytes == other.peer_id_bytes:
                 return True
         return False
 
     def get_uncontacted(self) -> List["KadPeerInfo"]:
-        return [n for n in self if n.peer_id_raw not in self.contacted]
+        return [n for n in self if n.peer_id_bytes not in self.contacted]
 
 
 def create_kad_peerinfo(
-    raw_node_id: bytes = None, sender_ip: str = None, sender_port: int = None
+    raw_node_id: Union[bytes, ID] = None, sender_ip: str = None, sender_port: int = None
 ) -> "KadPeerInfo":
-    node_id = ID(raw_node_id) if raw_node_id else ID(digest(random.getrandbits(255)))
+    node_id: ID
+    if raw_node_id is None:
+        node_id = ID(digest(random.getrandbits(255)))
+    elif isinstance(raw_node_id, bytes):
+        node_id = ID(raw_node_id)
+    elif isinstance(raw_node_id, ID):
+        node_id = raw_node_id
+    else:
+        raise TypeError(f"raw_node_id should be one of None, bytes, or ID, got {type(raw_node_id)}")
     peer_data = None
     if sender_ip and sender_port:
-        peer_data = PeerData()  # pylint: disable=no-value-for-parameter
+        peer_data = PeerData()
         addr = [Multiaddr(f"/{P_IP}/{str(sender_ip)}/{P_UDP}/{str(sender_port)}")]
         peer_data.add_addrs(addr)
 

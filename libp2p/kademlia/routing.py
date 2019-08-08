@@ -48,24 +48,24 @@ class KBucket:
         two = KBucket(midpoint + 1, self.range[1], self.ksize)
         for node in self.nodes.values():
             bucket = one if node.xor_id <= midpoint else two
-            bucket.nodes[node.peer_id_raw] = node
+            bucket.nodes[node.peer_id_bytes] = node
         return (one, two)
 
     def remove_node(self, node: "KadPeerInfo") -> None:
-        if node.peer_id_raw not in self.nodes:
+        if node.peer_id_bytes not in self.nodes:
             return
 
         # delete node, and see if we can add a replacement
-        del self.nodes[node.peer_id_raw]
+        del self.nodes[node.peer_id_bytes]
         if self.replacement_nodes:
             newnode = self.replacement_nodes.pop()
-            self.nodes[newnode.peer_id_raw] = newnode
+            self.nodes[newnode.peer_id_bytes] = newnode
 
     def has_in_range(self, node: "KadPeerInfo") -> bool:
         return self.range[0] <= node.xor_id <= self.range[1]
 
     def is_new_node(self, node: "KadPeerInfo") -> bool:
-        return node.peer_id_raw not in self.nodes
+        return node.peer_id_bytes not in self.nodes
 
     def add_node(self, node: "KadPeerInfo") -> bool:
         """
@@ -75,11 +75,11 @@ class KBucket:
         If the bucket is full, keep track of node in a replacement list,
         per section 4.1 of the paper.
         """
-        if node.peer_id_raw in self.nodes:
-            del self.nodes[node.peer_id_raw]
-            self.nodes[node.peer_id_raw] = node
+        if node.peer_id_bytes in self.nodes:
+            del self.nodes[node.peer_id_bytes]
+            self.nodes[node.peer_id_bytes] = node
         elif len(self) < self.ksize:
-            self.nodes[node.peer_id_raw] = node
+            self.nodes[node.peer_id_bytes] = node
         else:
             self.replacement_nodes.push(node)
             return False
@@ -87,7 +87,7 @@ class KBucket:
 
     def depth(self) -> int:
         vals = self.nodes.values()
-        sprefix = shared_prefix([bytes_to_bit_string(n.peer_id_raw) for n in vals])
+        sprefix = shared_prefix([bytes_to_bit_string(n.peer_id_bytes) for n in vals])
         return len(sprefix)
 
     def head(self) -> "KadPeerInfo":

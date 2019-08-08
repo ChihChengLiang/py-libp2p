@@ -3,7 +3,7 @@ from typing import List
 
 import multiaddr
 
-from .id import ID, id_b58_decode
+from .id import ID
 from .peerdata import PeerData
 
 
@@ -17,8 +17,8 @@ class PeerInfo(ABC):
         self.addrs = peer_data.get_addrs() if peer_data else None
 
     @property
-    def peer_id_raw(self) -> bytes:
-        return self.peer_id.get_raw_id()
+    def peer_id_bytes(self) -> bytes:
+        return self.peer_id.to_bytes()
 
 
 def info_from_p2p_addr(addr: multiaddr.Multiaddr) -> PeerInfo:
