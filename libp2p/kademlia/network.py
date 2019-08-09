@@ -4,7 +4,7 @@ Package for interacting on the network at a high level.
 import asyncio
 import logging
 import pickle
-from typing import Awaitable, List, NewType, Sequence, Union
+from typing import Awaitable, List, Sequence, Tuple
 
 from libp2p.kademlia.crawling import NodeSpiderCrawl, ValueSpiderCrawl
 from libp2p.kademlia.kad_peerinfo import KadPeerInfo, create_kad_peerinfo
@@ -12,11 +12,11 @@ from libp2p.kademlia.protocol import KademliaProtocol
 from libp2p.kademlia.storage import ForgetfulStorage, IStorage
 from libp2p.kademlia.utils import digest
 from libp2p.peer.id import ID
-from libp2p.typing import IP, Address, DHTValue, PeerIDBytes, Port
+from libp2p.typing import IP, Address, DHTValue, PeerIDBytes, Port, RPCSuccessful
 
 log = logging.getLogger(__name__)
 
-TKey = NewType("TKey", Union[str, bytes])
+ZERO_IP = IP("0.0.0.0")
 
 
 class KademliaServer:
@@ -29,7 +29,7 @@ class KademliaServer:
     alpha: int
     storage: IStorage
     node: KadPeerInfo
-    transport: asyncio.Transport
+    transport: asyncio.BaseTransport
     protocol: KademliaProtocol
     refresh_loop: asyncio.TimerHandle
     save_state_loop: asyncio.TimerHandle
@@ -69,7 +69,7 @@ class KademliaServer:
     def _create_protocol(self) -> KademliaProtocol:
         return KademliaProtocol(self.node, self.storage, self.ksize)
 
-    async def listen(self, port: Port, interface: IP = "0.0.0.0") -> None:
+    async def listen(self, port: Port, interface: IP = ZERO_IP) -> None:
         """
         Start listening on the given port.
 
@@ -78,7 +78,8 @@ class KademliaServer:
         loop = asyncio.get_event_loop()
         listen = loop.create_datagram_endpoint(self._create_protocol, local_addr=(interface, port))
         log.info("Node %i listening on %s:%i", self.node.xor_id, interface, port)
-        self.transport, self.protocol = await listen
+        # ignore type of self.protocol: mypy can't recognize it is KademliaProtocol
+        self.transport, self.protocol = await listen  # type: ignore
         # finally, schedule refreshing table
         self.refresh_table()
 
@@ -104,6 +105,8 @@ class KademliaServer:
         await asyncio.gather(*results)
 
         # now republish keys older than one hour
+        dkey: PeerIDBytes
+        value: DHTValue
         for dkey, value in self.storage.iter_older_than(3600):
             await self.set_digest(dkey, value)
 
@@ -118,9 +121,9 @@ class KademliaServer:
         back up, the list of nodes can be used to bootstrap.
         """
         neighbors = self.protocol.router.find_neighbors(self.node)
-        return [tuple(n)[-2:] for n in neighbors]
+        return [n.to_tuple()[-2:] for n in neighbors]
 
-    async def bootstrap(self, addrs: Sequence[Address]) -> List[Address]:
+    async def bootstrap(self, addrs: Sequence[Address]) -> List[KadPeerInfo]:
         """
         Bootstrap the server by connecting to other known nodes in the network.
 
@@ -135,11 +138,12 @@ class KademliaServer:
         spider = NodeSpiderCrawl(self.protocol, self.node, nodes, self.ksize, self.alpha)
         return await spider.find()
 
-    async def bootstrap_node(self, addr: Sequence[Address]) -> List[Address]:
-        result = await self.protocol.ping(addr, self.node.peer_id_bytes)
-        return create_kad_peerinfo(result[1], addr[0], addr[1]) if result[0] else None
+    async def bootstrap_node(self, addr: Address) -> KadPeerInfo:
+        sucess, peer_id_bytes = await self.protocol.ping(addr, self.node.peer_id_bytes)
+        ip, port = addr
+        return create_kad_peerinfo(peer_id_bytes, ip, port) if sucess else None
 
-    async def get(self, key: TKey) -> DHTValue:
+    async def get(self, key: PeerIDBytes) -> DHTValue:
         """
         Get a key if the network has it.
 
@@ -147,10 +151,11 @@ class KademliaServer:
             :class:`None` if not found, the value otherwise.
         """
         log.info("Looking up key %s", key)
-        dkey = digest(key)
+        dkey = PeerIDBytes(digest(key))
         # if this node has it, return it
-        if self.storage.get(dkey) is not None:
-            return self.storage.get(dkey)
+        value: DHTValue = self.storage.get(dkey)
+        if value is not None:
+            return value
 
         node = create_kad_peerinfo(dkey)
         nearest = self.protocol.router.find_neighbors(node)
@@ -160,17 +165,17 @@ class KademliaServer:
         spider = ValueSpiderCrawl(self.protocol, node, nearest, self.ksize, self.alpha)
         return await spider.find()
 
-    async def set(self, key: TKey, value: DHTValue) -> bool:
+    async def set(self, key: PeerIDBytes, value: DHTValue) -> bool:
         """
         Set the given string key to the given value in the network.
         """
         if not check_dht_value_type(value):
             raise TypeError("Value must be of type int, float, bool, str, or bytes")
         log.info("setting '%s' = '%s' on network", key, value)
-        dkey = digest(key)
+        dkey = PeerIDBytes(digest(key))
         return await self.set_digest(dkey, value)
 
-    async def provide(self, key: TKey) -> List[bool]:
+    async def provide(self, key: PeerIDBytes) -> List[Tuple[RPCSuccessful, bool]]:
         """
         publish to the network that it provides for a particular key
         """
@@ -180,7 +185,9 @@ class KademliaServer:
             for n in neighbors
         ]
 
-    async def get_providers(self, key: TKey) -> List[KadPeerInfo]:
+    async def get_providers(
+        self, key: PeerIDBytes
+    ) -> List[Tuple[RPCSuccessful, List[KadPeerInfo]]]:
         """
         get the list of providers for a key
         """
@@ -207,7 +214,9 @@ class KademliaServer:
         biggest = max([n.distance_to(node) for n in nodes])
         if self.node.distance_to(node) < biggest:
             self.storage[dkey] = value
-        results: List[Awaitable[bool]] = [self.protocol.call_store(n, dkey, value) for n in nodes]
+        results: List[Awaitable[Tuple[RPCSuccessful, bool]]] = [
+            self.protocol.call_store(n, dkey, value) for n in nodes
+        ]
         # return true only if at least one store call succeeded
         return any(await asyncio.gather(*results))
 

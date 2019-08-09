@@ -11,7 +11,7 @@ NegotiableTransport = Union[IMuxedStream, IRawConnection]
 
 IP = NewType("IP", str)
 Port = NewType("Port", int)
-Address = NewType("Address", Tuple[IP, Port])
+Address = Tuple[IP, Port]
 
 PeerIDBytes = NewType("PeerIDBytes", bytes)
 
@@ -19,3 +19,4 @@ PeerIDBytes = NewType("PeerIDBytes", bytes)
 DHTValue = NewType("DHTValue", Union[int, float, bool, str, bytes])
 KadPeerTuple = Tuple[PeerIDBytes, IP, Port]
 FindResponse = Union[Sequence[KadPeerTuple], Dict[str, DHTValue]]
+RPCSuccessful = NewType("RPCSuccessful", bool)
