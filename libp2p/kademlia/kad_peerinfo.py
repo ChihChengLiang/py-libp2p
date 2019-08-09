@@ -57,7 +57,7 @@ class KadPeerHeap:
 
     node: "KadPeerInfo"
     heap: List[Tuple[int, "KadPeerInfo"]]
-    contacted: Set[bytes]
+    contacted: Set[PeerIDBytes]
     maxsize: int
 
     def __init__(self, node: "KadPeerInfo", maxsize: int) -> None:
@@ -72,7 +72,7 @@ class KadPeerHeap:
         self.contacted = set()
         self.maxsize = maxsize
 
-    def remove(self, peers: Set["KadPeerInfo"]) -> None:
+    def remove(self, peers: Sequence[PeerIDBytes]) -> None:
         """
         Remove a list of peer ids from this heap.  Note that while this
         heap retains a constant visible size (based on the iterator), it's
@@ -80,16 +80,16 @@ class KadPeerHeap:
         removal of nodes may not change the visible size as previously added
         nodes suddenly become visible.
         """
-        peers = set(peers)
-        if not peers:
+        peers_set = set(peers)
+        if not peers_set:
             return
         nheap: List[Tuple[int, "KadPeerInfo"]] = []
         for distance, node in self.heap:
-            if node not in peers:
+            if node.peer_id_bytes not in peers_set:
                 heapq.heappush(nheap, (distance, node))
         self.heap = nheap
 
-    def get_node(self, node_id: bytes) -> "KadPeerInfo":
+    def get_node(self, node_id: PeerIDBytes) -> "KadPeerInfo":
         for _, node in self.heap:
             if node.peer_id_bytes == node_id:
                 return node
@@ -98,7 +98,7 @@ class KadPeerHeap:
     def have_contacted_all(self) -> bool:
         return len(self.get_uncontacted()) == 0
 
-    def get_ids(self) -> List[bytes]:
+    def get_ids(self) -> List[PeerIDBytes]:
         return [n.peer_id_bytes for n in self]
 
     def mark_contacted(self, node: "KadPeerInfo") -> None:

@@ -5,6 +5,7 @@ from libp2p.kademlia.kad_peerinfo import KadPeerInfo, create_kad_peerinfo
 from libp2p.kademlia.network import KademliaServer
 from libp2p.peer.id import ID
 from libp2p.routing.interfaces import IPeerRouting
+from libp2p.typing import PeerIDBytes
 
 
 class KadmeliaPeerRouter(IPeerRouting):
@@ -21,7 +22,7 @@ class KadmeliaPeerRouter(IPeerRouting):
         :return: KadPeerInfo of specified peer
         """
         # switching peer_id to xor_id used by kademlia as node_id
-        xor_id = peer_id.xor_id
+        xor_id = PeerIDBytes(peer_id.xor_id.to_bytes(32, "little"))
         value = await self.server.get(xor_id)
         return decode_peerinfo(value)
 

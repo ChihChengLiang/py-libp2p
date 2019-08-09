@@ -18,5 +18,5 @@ PeerIDBytes = NewType("PeerIDBytes", bytes)
 # Kademlia
 DHTValue = NewType("DHTValue", Union[int, float, bool, str, bytes])
 KadPeerTuple = Tuple[PeerIDBytes, IP, Port]
-FindResponse = Union[Sequence[KadPeerTuple], Dict[str, DHTValue]]
+FindValueResponse = Union[Sequence[KadPeerTuple], Dict[str, DHTValue]]
 RPCSuccessful = NewType("RPCSuccessful", bool)

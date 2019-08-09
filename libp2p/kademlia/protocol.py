@@ -5,7 +5,14 @@ from typing import TYPE_CHECKING, Any, Iterable, List, Tuple
 
 from rpcudp.protocol import RPCProtocol
 
-from libp2p.typing import Address, DHTValue, FindResponse, KadPeerTuple, PeerIDBytes, RPCSuccessful
+from libp2p.typing import (
+    Address,
+    DHTValue,
+    FindValueResponse,
+    KadPeerTuple,
+    PeerIDBytes,
+    RPCSuccessful,
+)
 
 from .kad_peerinfo import KadPeerInfo, create_kad_peerinfo
 from .routing import RoutingTable
@@ -84,7 +91,7 @@ class KademliaProtocol(RPCProtocol):
 
     def rpc_find_value(
         self, sender: Address, nodeid: PeerIDBytes, key: PeerIDBytes
-    ) -> FindResponse:
+    ) -> FindValueResponse:
         source = create_kad_peerinfo(nodeid, sender[0], sender[1])
 
         self.welcome_if_new(source)
@@ -139,7 +146,7 @@ class KademliaProtocol(RPCProtocol):
 
     async def call_find_value(
         self, node_to_ask: "KadPeerInfo", node_to_find: "KadPeerInfo"
-    ) -> Tuple[RPCSuccessful, FindResponse]:
+    ) -> Tuple[RPCSuccessful, FindValueResponse]:
         address = (node_to_ask.ip, node_to_ask.port)
         result = await self.find_value(
             address, self.source_node.peer_id_bytes, node_to_find.peer_id_bytes

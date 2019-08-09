@@ -208,7 +208,7 @@ class RoutingTable:
         self, node: KadPeerInfo, k: int = None, exclude: Multiaddr = None
     ) -> List[KadPeerInfo]:
         k = k or self.ksize
-        nodes: List[KadPeerInfo] = []
+        nodes: List[Tuple[int, KadPeerInfo]] = []
         for neighbor in TableTraverser(self, node):
             notexcluded = exclude is None or not neighbor.same_home_as(exclude)
             if neighbor.peer_id_bytes != node.peer_id_bytes and notexcluded:

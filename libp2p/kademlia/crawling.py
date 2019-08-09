@@ -1,8 +1,8 @@
 from collections import Counter
 import logging
-from typing import Awaitable, Callable, Dict, List, Mapping, Sequence, Tuple, TypeVar
+from typing import Awaitable, Callable, Dict, List, Mapping, Sequence, Tuple, Union
 
-from libp2p.typing import DHTValue, FindResponse
+from libp2p.typing import DHTValue, FindValueResponse, PeerIDBytes, RPCSuccessful
 
 from .kad_peerinfo import KadPeerHeap, KadPeerInfo, create_kad_peerinfo
 from .protocol import KademliaProtocol
@@ -10,11 +10,11 @@ from .utils import gather_dict
 
 log = logging.getLogger(__name__)
 
+FindNodeResponse = List[KadPeerInfo]
+FindResponse = Union[FindNodeResponse, FindValueResponse]
+TRPCMethod = Callable[[KadPeerInfo, KadPeerInfo], Awaitable[Tuple[RPCSuccessful, FindResponse]]]
 
-TRPCMethod = Callable[[KadPeerInfo, KadPeerInfo], Awaitable[Tuple[bool, FindResponse]]]
-TNodesFound = TypeVar("TNodesFound")
-TPeerID = TypeVar("TPeerID")
-TResponses = Mapping[bytes, Tuple[bool, FindResponse]]
+TResponses = Mapping[PeerIDBytes, Tuple[RPCSuccessful, FindResponse]]
 
 
 class SpiderCrawl:
@@ -27,7 +27,7 @@ class SpiderCrawl:
     alpha: int
     node: "KadPeerInfo"
     nearest: "KadPeerHeap"
-    last_ids_crawled: List[bytes]
+    last_ids_crawled: List[PeerIDBytes]
 
     def __init__(
         self,
@@ -84,7 +84,7 @@ class SpiderCrawl:
         for peer in self.nearest.get_uncontacted()[:count]:
             dicts[peer.peer_id_bytes] = rpcmethod(peer, self.node)
             self.nearest.mark_contacted(peer)
-        found: Dict[bytes, Tuple[bool, FindResponse]] = await gather_dict(dicts)
+        found: Dict[PeerIDBytes, Tuple[RPCSuccessful, FindResponse]] = await gather_dict(dicts)
         return await self._nodes_found(found)
 
     async def _nodes_found(self, responses: TResponses) -> List[KadPeerInfo]:
@@ -111,14 +111,15 @@ class ValueSpiderCrawl(SpiderCrawl):
         """
         return await self._find(self.protocol.call_find_value)
 
-    async def _nodes_found(self, responses: TResponses) -> TNodesFound:
+    async def _nodes_found(self, responses: TResponses) -> List[KadPeerInfo]:
         """
         Handle the result of an iteration in _find.
         """
         toremove = []
         found_values = []
         for peerid, response in responses.items():
-            rpc_response = RPCFindResponse(response)
+            # ignore type, we are handling FindNodeResponse here.
+            rpc_response = RPCFindResponse(response)  # type: ignore
             if not rpc_response.happened():
                 toremove.append(peerid)
             elif rpc_response.has_value():
@@ -167,11 +168,12 @@ class NodeSpiderCrawl(SpiderCrawl):
         """
         toremove = []
         for peerid, response in responses.items():
-            response = RPCFindResponse(response)
-            if not response.happened():
+            # ignore type, we are handling FindValueResponse here.
+            rpc_response = RPCFindResponse(response)  # type: ignore
+            if not rpc_response.happened():
                 toremove.append(peerid)
             else:
-                self.nearest.push(response.get_node_list())
+                self.nearest.push(rpc_response.get_node_list())
         self.nearest.remove(toremove)
 
         if self.nearest.have_contacted_all():
@@ -180,9 +182,9 @@ class NodeSpiderCrawl(SpiderCrawl):
 
 
 class RPCFindResponse:
-    response: Tuple[bool, FindResponse]
+    response: Tuple[RPCSuccessful, FindValueResponse]
 
-    def __init__(self, response: Tuple[bool, FindResponse]):
+    def __init__(self, response: Tuple[RPCSuccessful, FindValueResponse]):
         """
         A wrapper for the result of a RPC find.
 
@@ -193,7 +195,7 @@ class RPCFindResponse:
         """
         self.response = response
 
-    def happened(self) -> bool:
+    def happened(self) -> RPCSuccessful:
         """
         Did the other host actually respond?
         """
@@ -203,7 +205,8 @@ class RPCFindResponse:
         return isinstance(self.response[1], dict)
 
     def get_value(self) -> DHTValue:
-        return self.response[1]["value"]
+        # ignore typing since we assume __getitem__ is not an issue for reponse here
+        return self.response[1]["value"]  # type: ignore
 
     def get_node_list(self) -> List[KadPeerInfo]:
         """
