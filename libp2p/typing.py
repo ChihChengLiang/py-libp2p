@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, Dict, NewType, Sequence, Tuple, Union
+from typing import Awaitable, Callable, Dict, List, NewType, Tuple, Union
 
 from libp2p.network.connection.raw_connection_interface import IRawConnection
 from libp2p.network.stream.net_stream_interface import INetStream
@@ -16,7 +16,9 @@ Address = Tuple[IP, Port]
 PeerIDBytes = NewType("PeerIDBytes", bytes)
 
 # Kademlia
-DHTValue = NewType("DHTValue", Union[int, float, bool, str, bytes])
+DHTValue = PeerIDBytes
 KadPeerTuple = Tuple[PeerIDBytes, IP, Port]
-FindValueResponse = Union[Sequence[KadPeerTuple], Dict[str, DHTValue]]
+FindNodeResponse = List[KadPeerTuple]
+FindValueResponse = Dict[str, DHTValue]
+FindXResponse = Union[FindNodeResponse, FindValueResponse]
 RPCSuccessful = NewType("RPCSuccessful", bool)

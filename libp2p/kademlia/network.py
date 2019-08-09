@@ -187,7 +187,7 @@ class KademliaServer:
 
     async def get_providers(
         self, key: PeerIDBytes
-    ) -> List[Tuple[RPCSuccessful, List[KadPeerInfo]]]:
+    ) -> List[Tuple[RPCSuccessful, List[PeerIDBytes]]]:
         """
         get the list of providers for a key
         """
