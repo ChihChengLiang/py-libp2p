@@ -1,18 +1,15 @@
 import heapq
-from operator import itemgetter
 import random
-from typing import TYPE_CHECKING, Any, Iterator, List, Sequence, Set, Tuple, Union
+from typing import Iterator, List, Sequence, Set, Tuple, Union
 
 from multiaddr import Multiaddr
 
 from libp2p.peer.id import ID
 from libp2p.peer.peerdata import PeerData
 from libp2p.peer.peerinfo import PeerInfo
+from libp2p.typing import IP, KadPeerTuple, PeerIDBytes, Port
 
 from .utils import digest
-
-if TYPE_CHECKING:
-    from libp2p.host.host_interface import IHost
 
 P_IP = "ip4"
 P_UDP = "udp"
@@ -20,16 +17,16 @@ P_UDP = "udp"
 
 class KadPeerInfo(PeerInfo):
     xor_id: int
-    ip: str
-    port: int
+    ip: IP
+    port: Port
 
     def __init__(self, peer_id: ID, peer_data: PeerData = None) -> None:
         super().__init__(peer_id, peer_data)
 
         self.xor_id = peer_id.xor_id
 
-        self.ip = self.addrs[0].value_for_protocol(P_IP) if peer_data else None
-        self.port = int(self.addrs[0].value_for_protocol(P_UDP)) if peer_data else None
+        self.ip = IP(self.addrs[0].value_for_protocol(P_IP) if peer_data else None)
+        self.port = Port(int(self.addrs[0].value_for_protocol(P_UDP)) if peer_data else None)
 
     def same_home_as(self, node: "KadPeerInfo") -> bool:
         return sorted(self.addrs) == sorted(node.addrs)
@@ -40,11 +37,8 @@ class KadPeerInfo(PeerInfo):
         """
         return self.xor_id ^ node.xor_id
 
-    def __iter__(self) -> Iterator[Any]:
-        """
-        Enables use of Node as a tuple - i.e., tuple(node) works.
-        """
-        return iter([self.peer_id_bytes, self.ip, self.port])
+    def to_tuple(self) -> KadPeerTuple:
+        return (self.peer_id_bytes, self.ip, self.port)
 
     def __repr__(self) -> str:
         return repr([self.xor_id, self.ip, self.port, self.peer_id])
@@ -150,7 +144,7 @@ class KadPeerHeap:
 
 
 def create_kad_peerinfo(
-    raw_node_id: Union[bytes, ID] = None, sender_ip: str = None, sender_port: int = None
+    raw_node_id: Union[PeerIDBytes, ID] = None, sender_ip: str = None, sender_port: int = None
 ) -> "KadPeerInfo":
     node_id: ID
     if raw_node_id is None:

@@ -1,20 +1,20 @@
 from collections import Counter
 import logging
-from typing import TYPE_CHECKING, List, Sequence, TypeVar
+from typing import Awaitable, Callable, Dict, List, Mapping, Sequence, Tuple, TypeVar
 
-from .kad_peerinfo import KadPeerHeap, create_kad_peerinfo
+from libp2p.typing import DHTValue, FindResponse
+
+from .kad_peerinfo import KadPeerHeap, KadPeerInfo, create_kad_peerinfo
+from .protocol import KademliaProtocol
 from .utils import gather_dict
 
 log = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from .protocol import KademliaProtocol
-    from .kad_peerinfo import KadPeerInfo
 
-TRPCMethod = TypeVar("TRPCMethod")
+TRPCMethod = Callable[[KadPeerInfo, KadPeerInfo], Awaitable[Tuple[bool, FindResponse]]]
 TNodesFound = TypeVar("TNodesFound")
 TPeerID = TypeVar("TPeerID")
-TResponses = "RPCFindResponse"
+TResponses = Mapping[bytes, Tuple[bool, FindResponse]]
 
 
 class SpiderCrawl:
@@ -31,7 +31,7 @@ class SpiderCrawl:
 
     def __init__(
         self,
-        protocol: "KademliaProtocol",
+        protocol: KademliaProtocol,
         node: "KadPeerInfo",
         peers: Sequence["KadPeerInfo"],
         ksize: int,
@@ -58,7 +58,7 @@ class SpiderCrawl:
         log.info("creating spider with peers: %s", peers)
         self.nearest.push(peers)
 
-    async def _find(self, rpcmethod: TRPCMethod) -> TNodesFound:
+    async def _find(self, rpcmethod: TRPCMethod) -> List[KadPeerInfo]:
         """
         Get either a value or list of nodes.
 
@@ -84,19 +84,19 @@ class SpiderCrawl:
         for peer in self.nearest.get_uncontacted()[:count]:
             dicts[peer.peer_id_bytes] = rpcmethod(peer, self.node)
             self.nearest.mark_contacted(peer)
-        found = await gather_dict(dicts)
+        found: Dict[bytes, Tuple[bool, FindResponse]] = await gather_dict(dicts)
         return await self._nodes_found(found)
 
-    async def _nodes_found(self, responses: TResponses) -> TNodesFound:
+    async def _nodes_found(self, responses: TResponses) -> List[KadPeerInfo]:
         raise NotImplementedError
 
 
 class ValueSpiderCrawl(SpiderCrawl):
     def __init__(
         self,
-        protocol: "KademliaProtocol",
-        node: "KadPeerInfo",
-        peers: Sequence["KadPeerInfo"],
+        protocol: KademliaProtocol,
+        node: KadPeerInfo,
+        peers: Sequence[KadPeerInfo],
         ksize: int,
         alpha: int,
     ):
@@ -105,7 +105,7 @@ class ValueSpiderCrawl(SpiderCrawl):
         # section 2.3 so we can set the key there if found
         self.nearest_without_value = KadPeerHeap(self.node, 1)
 
-    async def find(self):
+    async def find(self) -> List[KadPeerInfo]:
         """
         Find either the closest nodes or the value requested.
         """
@@ -118,15 +118,15 @@ class ValueSpiderCrawl(SpiderCrawl):
         toremove = []
         found_values = []
         for peerid, response in responses.items():
-            response = RPCFindResponse(response)
-            if not response.happened():
+            rpc_response = RPCFindResponse(response)
+            if not rpc_response.happened():
                 toremove.append(peerid)
-            elif response.has_value():
-                found_values.append(response.get_value())
+            elif rpc_response.has_value():
+                found_values.append(rpc_response.get_value())
             else:
                 peer = self.nearest.get_node(peerid)
                 self.nearest_without_value.push(peer)
-                self.nearest.push(response.get_node_list())
+                self.nearest.push(rpc_response.get_node_list())
         self.nearest.remove(toremove)
 
         if found_values:
@@ -136,7 +136,7 @@ class ValueSpiderCrawl(SpiderCrawl):
             return None
         return await self.find()
 
-    async def _handle_found_values(self, values):
+    async def _handle_found_values(self, values: Sequence[DHTValue]) -> DHTValue:
         """
         We got some values!  Exciting.  But let's make sure
         they're all the same or freak out a little bit.  Also,
@@ -155,13 +155,13 @@ class ValueSpiderCrawl(SpiderCrawl):
 
 
 class NodeSpiderCrawl(SpiderCrawl):
-    async def find(self):
+    async def find(self) -> List[KadPeerInfo]:
         """
         Find the closest nodes.
         """
         return await self._find(self.protocol.call_find_node)
 
-    async def _nodes_found(self, responses):
+    async def _nodes_found(self, responses: TResponses) -> List[KadPeerInfo]:
         """
         Handle the result of an iteration in _find.
         """
@@ -180,7 +180,9 @@ class NodeSpiderCrawl(SpiderCrawl):
 
 
 class RPCFindResponse:
-    def __init__(self, response):
+    response: Tuple[bool, FindResponse]
+
+    def __init__(self, response: Tuple[bool, FindResponse]):
         """
         A wrapper for the result of a RPC find.
 
@@ -191,19 +193,19 @@ class RPCFindResponse:
         """
         self.response = response
 
-    def happened(self):
+    def happened(self) -> bool:
         """
         Did the other host actually respond?
         """
         return self.response[0]
 
-    def has_value(self):
+    def has_value(self) -> bool:
         return isinstance(self.response[1], dict)
 
-    def get_value(self):
+    def get_value(self) -> DHTValue:
         return self.response[1]["value"]
 
-    def get_node_list(self):
+    def get_node_list(self) -> List[KadPeerInfo]:
         """
         Get the node list in the response.  If there's no value, this should
         be set.

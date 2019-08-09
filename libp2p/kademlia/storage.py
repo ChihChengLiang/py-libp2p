@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING, Iterator, Tuple, TypeVar
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any  # noqa: F401
 
 TKey = TypeVar("TKey")
 TValue = TypeVar("TValue")
@@ -89,7 +89,7 @@ class ForgetfulStorage(IStorage):
         min_birthday = time.monotonic() - seconds_old
         zipped: Iterator[Tuple[TKey, int, TValue]] = self._triple_iter()
         matches = takewhile(lambda r: min_birthday >= r[1], zipped)
-        for key, birthday, value in matches:
+        for key, _, value in matches:
             yield key, value
 
     def _triple_iter(self) -> Iterator[Tuple[TKey, int, TValue]]:

@@ -4,14 +4,19 @@ Package for interacting on the network at a high level.
 import asyncio
 import logging
 import pickle
+from typing import Awaitable, List, NewType, Sequence, Union
 
-from .crawling import NodeSpiderCrawl, ValueSpiderCrawl
-from .kad_peerinfo import create_kad_peerinfo
-from .protocol import KademliaProtocol
-from .storage import ForgetfulStorage
-from .utils import digest
+from libp2p.kademlia.crawling import NodeSpiderCrawl, ValueSpiderCrawl
+from libp2p.kademlia.kad_peerinfo import KadPeerInfo, create_kad_peerinfo
+from libp2p.kademlia.protocol import KademliaProtocol
+from libp2p.kademlia.storage import ForgetfulStorage, IStorage
+from libp2p.kademlia.utils import digest
+from libp2p.peer.id import ID
+from libp2p.typing import IP, Address, DHTValue, PeerIDBytes, Port
 
 log = logging.getLogger(__name__)
+
+TKey = NewType("TKey", Union[str, bytes])
 
 
 class KademliaServer:
@@ -20,9 +25,18 @@ class KademliaServer:
     created to start listening as an active node on the network.
     """
 
-    protocol_class = KademliaProtocol
+    ksize: int
+    alpha: int
+    storage: IStorage
+    node: KadPeerInfo
+    transport: asyncio.Transport
+    protocol: KademliaProtocol
+    refresh_loop: asyncio.TimerHandle
+    save_state_loop: asyncio.TimerHandle
 
-    def __init__(self, ksize=20, alpha=3, node_id=None, storage=None):
+    def __init__(
+        self, ksize: int = 20, alpha: int = 3, node_id: ID = None, storage: IStorage = None
+    ) -> None:
         """
         Create a server instance.  This will start listening on the given port.
 
@@ -42,7 +56,7 @@ class KademliaServer:
         self.refresh_loop = None
         self.save_state_loop = None
 
-    def stop(self):
+    def stop(self) -> None:
         if self.transport is not None:
             self.transport.close()
 
@@ -52,10 +66,10 @@ class KademliaServer:
         if self.save_state_loop:
             self.save_state_loop.cancel()
 
-    def _create_protocol(self):
-        return self.protocol_class(self.node, self.storage, self.ksize)
+    def _create_protocol(self) -> KademliaProtocol:
+        return KademliaProtocol(self.node, self.storage, self.ksize)
 
-    async def listen(self, port, interface="0.0.0.0"):
+    async def listen(self, port: Port, interface: IP = "0.0.0.0") -> None:
         """
         Start listening on the given port.
 
@@ -68,13 +82,13 @@ class KademliaServer:
         # finally, schedule refreshing table
         self.refresh_table()
 
-    def refresh_table(self):
+    def refresh_table(self) -> None:
         log.debug("Refreshing routing table")
         asyncio.ensure_future(self._refresh_table())
         loop = asyncio.get_event_loop()
         self.refresh_loop = loop.call_later(3600, self.refresh_table)
 
-    async def _refresh_table(self):
+    async def _refresh_table(self) -> None:
         """
         Refresh buckets that haven't had any lookups in the last hour
         (per section 2.3 of the paper).
@@ -93,7 +107,7 @@ class KademliaServer:
         for dkey, value in self.storage.iter_older_than(3600):
             await self.set_digest(dkey, value)
 
-    def bootstrappable_neighbors(self):
+    def bootstrappable_neighbors(self) -> List[Address]:
         """
         Get a :class:`list` of (ip, port) :class:`tuple` pairs suitable for
         use as an argument to the bootstrap method.
@@ -106,7 +120,7 @@ class KademliaServer:
         neighbors = self.protocol.router.find_neighbors(self.node)
         return [tuple(n)[-2:] for n in neighbors]
 
-    async def bootstrap(self, addrs):
+    async def bootstrap(self, addrs: Sequence[Address]) -> List[Address]:
         """
         Bootstrap the server by connecting to other known nodes in the network.
 
@@ -121,11 +135,11 @@ class KademliaServer:
         spider = NodeSpiderCrawl(self.protocol, self.node, nodes, self.ksize, self.alpha)
         return await spider.find()
 
-    async def bootstrap_node(self, addr):
+    async def bootstrap_node(self, addr: Sequence[Address]) -> List[Address]:
         result = await self.protocol.ping(addr, self.node.peer_id_bytes)
         return create_kad_peerinfo(result[1], addr[0], addr[1]) if result[0] else None
 
-    async def get(self, key):
+    async def get(self, key: TKey) -> DHTValue:
         """
         Get a key if the network has it.
 
@@ -146,7 +160,7 @@ class KademliaServer:
         spider = ValueSpiderCrawl(self.protocol, node, nearest, self.ksize, self.alpha)
         return await spider.find()
 
-    async def set(self, key: str, value: str):
+    async def set(self, key: TKey, value: DHTValue) -> bool:
         """
         Set the given string key to the given value in the network.
         """
@@ -156,7 +170,7 @@ class KademliaServer:
         dkey = digest(key)
         return await self.set_digest(dkey, value)
 
-    async def provide(self, key):
+    async def provide(self, key: TKey) -> List[bool]:
         """
         publish to the network that it provides for a particular key
         """
@@ -166,14 +180,14 @@ class KademliaServer:
             for n in neighbors
         ]
 
-    async def get_providers(self, key):
+    async def get_providers(self, key: TKey) -> List[KadPeerInfo]:
         """
         get the list of providers for a key
         """
         neighbors = self.protocol.router.find_neighbors(self.node)
         return [await self.protocol.call_get_providers(n, key) for n in neighbors]
 
-    async def set_digest(self, dkey: bytes, value):
+    async def set_digest(self, dkey: PeerIDBytes, value: DHTValue) -> bool:
         """
         Set the given SHA1 digest key (bytes) to the given value in the
         network.
@@ -193,11 +207,11 @@ class KademliaServer:
         biggest = max([n.distance_to(node) for n in nodes])
         if self.node.distance_to(node) < biggest:
             self.storage[dkey] = value
-        results = [self.protocol.call_store(n, dkey, value) for n in nodes]
+        results: List[Awaitable[bool]] = [self.protocol.call_store(n, dkey, value) for n in nodes]
         # return true only if at least one store call succeeded
         return any(await asyncio.gather(*results))
 
-    def save_state(self, fname):
+    def save_state(self, fname: str) -> None:
         """
         Save the state of this node (the alpha/ksize/id/immediate neighbors)
         to a cache file with the given fname.
@@ -216,7 +230,7 @@ class KademliaServer:
             pickle.dump(data, file)
 
     @classmethod
-    def load_state(cls, fname):
+    def load_state(cls, fname: str) -> "KademliaServer":
         """
         Load the state of this node (the alpha/ksize/id/immediate neighbors)
         from a cache file with the given fname.
@@ -229,7 +243,7 @@ class KademliaServer:
             svr.bootstrap(data["neighbors"])
         return svr
 
-    def save_state_regularly(self, fname, frequency=600):
+    def save_state_regularly(self, fname: str, frequency: int = 600) -> None:
         """
         Save the state of node with a given regularity to the given
         filename.
@@ -246,7 +260,7 @@ class KademliaServer:
         )
 
 
-def check_dht_value_type(value):
+def check_dht_value_type(value: DHTValue) -> bool:
     """
     Checks to see if the type of the value is a valid type for
     placing in the dht.
