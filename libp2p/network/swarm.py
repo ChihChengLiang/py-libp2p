@@ -221,9 +221,9 @@ class Swarm(INetwork):
                 self.notify_listen(maddr)
 
                 return True
-            except IOError:
+            except (IOError, SwarmException) as e:
                 # Failed. Continue looping.
-                logger.debug("fail to listen on: " + str(maddr))
+                logger.debug("fail to listen on: %s  reason: %s", str(maddr), str(e))
 
         # No maddr succeeded
         return False
